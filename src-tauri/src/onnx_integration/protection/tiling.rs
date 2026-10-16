@@ -1,7 +1,6 @@
 use image::DynamicImage;
 use ort::session::Session;
 use std::sync::atomic::Ordering;
-use tauri::Emitter;
 
 use super::preprocessing::{compute_edge_weight_map, preprocess_tile};
 use super::spsa::spsa_pgd_on_tile;
@@ -24,7 +23,7 @@ pub fn apply_model_protection(
     params: &AlgorithmParams,
     iterations: u32,
     run_model: &mut ModelRunFn,
-    app: &tauri::AppHandle,
+    emit: &dyn Fn(ProtectionProgress),
     state: &ProtectionState,
 ) -> Result<DynamicImage, String> {
     params.validate()?;
@@ -54,7 +53,7 @@ pub fn apply_model_protection(
             run_model,
             &edge_weights,
             &TileProgress {
-                app: app.clone(),
+                emit,
                 tile_current: (i + 1) as u32,
                 tile_total: total_tiles,
             },
@@ -69,7 +68,7 @@ pub fn apply_model_protection(
             &mut weight_accum,
         );
 
-        emit_protection_progress(app, (i + 1) as u32, total_tiles, iterations);
+        emit_protection_progress(emit, (i + 1) as u32, total_tiles, iterations);
     }
 
     construct_result_image(width, height, img, &result_accum, &weight_accum)
@@ -220,17 +219,19 @@ fn construct_result_image(
         .ok_or_else(|| "Failed to construct result image".to_string())
 }
 
-fn emit_protection_progress(app: &tauri::AppHandle, current: u32, total: u32, iterations: u32) {
+fn emit_protection_progress(
+    emit: &dyn Fn(ProtectionProgress),
+    current: u32,
+    total: u32,
+    iterations: u32,
+) {
     let percent = (current as f64 / total as f64 * 95.0).min(95.0);
-    let _ = app.emit(
-        "protection-progress",
-        ProtectionProgress {
-            stage: "processing".to_string(),
-            tile_current: current,
-            tile_total: total,
-            iteration_current: iterations,
-            iteration_total: iterations,
-            percent,
-        },
-    );
+    emit(ProtectionProgress {
+        stage: "processing".to_string(),
+        tile_current: current,
+        tile_total: total,
+        iteration_current: iterations,
+        iteration_total: iterations,
+        percent,
+    });
 }

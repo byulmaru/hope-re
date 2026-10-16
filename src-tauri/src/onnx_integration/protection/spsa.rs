@@ -1,7 +1,6 @@
 use ndarray::{Array, Array4};
 use ort::session::Session;
 use std::sync::atomic::Ordering;
-use tauri::Emitter;
 
 use super::types::{
     AlgorithmParams, ModelRunFn, ProtectionProgress, ProtectionState, TileProgress,
@@ -243,17 +242,14 @@ fn emit_tile_progress(progress: &TileProgress, k: u32, iterations: u32) {
     let per_tile = 1.0 / progress.tile_total.max(1) as f64;
     let percent = ((tile_frac + iter_frac * per_tile) * 95.0).min(95.0);
 
-    let _ = progress.app.emit(
-        "protection-progress",
-        ProtectionProgress {
-            stage: "processing".to_string(),
-            tile_current: progress.tile_current,
-            tile_total: progress.tile_total,
-            iteration_current: k,
-            iteration_total: iterations,
-            percent,
-        },
-    );
+    (progress.emit)(ProtectionProgress {
+        stage: "processing".to_string(),
+        tile_current: progress.tile_current,
+        tile_total: progress.tile_total,
+        iteration_current: k,
+        iteration_total: iterations,
+        percent,
+    });
 }
 
 fn get_nanos_seed() -> u64 {

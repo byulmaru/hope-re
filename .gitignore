@@ -24,3 +24,7 @@ nul
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+/api/target/
+/api/models/
+/api/__pycache__/
+

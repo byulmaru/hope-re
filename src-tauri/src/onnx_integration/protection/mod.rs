@@ -188,7 +188,9 @@ where
                 &params,
                 iterations,
                 &mut run_fn,
-                app,
+                &|progress| {
+                    let _ = app.emit("protection-progress", progress);
+                },
                 state,
             )?;
             Ok((

@@ -26,8 +26,8 @@ pub struct ProtectionResult {
     pub model_used: bool,
 }
 
-pub struct TileProgress {
-    pub app: tauri::AppHandle,
+pub struct TileProgress<'a> {
+    pub emit: &'a dyn Fn(ProtectionProgress),
     pub tile_current: u32,
     pub tile_total: u32,
 }

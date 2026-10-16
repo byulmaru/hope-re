@@ -1,0 +1,5 @@
+[
+  { "algorithm": "noise", "filename": "noise_algorithm.onnx", "version": "v2.5.1", "bytes": 351470439, "sha256": "83db45e0fcf2ae7f95822fc2afbffd299ba71a79e01fc3f274c35de662a2e07d" },
+  { "algorithm": "glaze", "filename": "glaze_algorithm.onnx", "version": "v2.5.1", "bytes": 351461680, "sha256": "3cb3d787aa1e7a26a352b9066644b8478d7bf12b06cd66ca775c6daf7a3a137b" },
+  { "algorithm": "nightshade", "filename": "nightshade_algorithm.onnx", "version": "v2.5.1", "bytes": 351467826, "sha256": "50998dcf6ea6d5455d71c13a21c98e1e25365ce63e021bc6d0caac6320a07a68" }
+]

@@ -1,5 +1,9 @@
 # Hope:RE
 
+## Server integration (fork addition)
+
+For SNS image filtering over HTTP, see [api/README.md](api/README.md). The optional native CPU service builds independently of the desktop app and reuses its existing protection source files. The upstream desktop structure is preserved.
+
 <p align="center">
   <img src="src/lib/assets/favicon.svg" alt="Hope:RE" width="128" height="128" />
 </p>

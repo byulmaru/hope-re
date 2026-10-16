@@ -1,0 +1,26 @@
+name: HTTP adapter
+on:
+  push:
+    paths:
+      - "api/**"
+      - "src-tauri/src/onnx_integration/protection/**"
+      - .github/workflows/api.yml
+  pull_request:
+    paths:
+      - "api/**"
+      - "src-tauri/src/onnx_integration/protection/**"
+      - .github/workflows/api.yml
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+          submodules: false
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check --manifest-path api/Cargo.toml
+      - run: cargo test --locked --manifest-path api/Cargo.toml
+      - run: cargo clippy --locked --manifest-path api/Cargo.toml -- -D warnings
