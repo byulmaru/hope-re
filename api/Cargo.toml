@@ -7,6 +7,10 @@ rust-version = "1.93.1"
 license = "MIT"
 publish = false
 
+[[bin]]
+name = "hope-infer"
+path = "src/bin/hope_infer.rs"
+
 [dependencies]
 http-body-util = "0.1"
 log = "0.4"
