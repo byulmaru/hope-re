@@ -151,6 +151,15 @@ impl Models {
         image: &DynamicImage,
         options: &Options,
     ) -> Result<(DynamicImage, u64), String> {
+        self.protect_with_state(image, options, &ProtectionState::default())
+    }
+
+    pub fn protect_with_state(
+        &mut self,
+        image: &DynamicImage,
+        options: &Options,
+        state: &ProtectionState,
+    ) -> Result<(DynamicImage, u64), String> {
         let params = options.validate()?;
         let session = self
             .0
@@ -185,7 +194,7 @@ impl Models {
                 })
             },
             &|_| {},
-            &ProtectionState::default(),
+            state,
         )?;
         Ok((image, calls.get()))
     }

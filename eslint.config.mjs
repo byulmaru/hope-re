@@ -70,6 +70,13 @@ export default antfu({
     ],
   },
 }, {
+  files: ["worker/test/**"],
+  rules: {
+    "antfu/no-import-dist": "off",
+    "antfu/no-top-level-await": "off",
+    "test/no-import-node-test": "off",
+  },
+}, {
   files: ["src/lib/components/updater/update-dialog.svelte"],
   rules: {
     "svelte/no-at-html-tags": "off",

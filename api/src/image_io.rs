@@ -2,6 +2,15 @@ use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits};
 use std::io::Cursor;
 
 pub fn decode(bytes: &[u8], max_edge: u32) -> Result<DynamicImage, String> {
+    decode_limited(bytes, max_edge, 8192, 40_000_000)
+}
+
+pub fn decode_limited(
+    bytes: &[u8],
+    max_edge: u32,
+    max_dimension: u32,
+    max_pixels: u64,
+) -> Result<DynamicImage, String> {
     let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|error| error.to_string())?;
@@ -24,14 +33,14 @@ pub fn decode(bytes: &[u8], max_edge: u32) -> Result<DynamicImage, String> {
         _ => return Err("Input must be a still JPEG, PNG, or WebP".into()),
     }
     let mut limits = Limits::default();
-    limits.max_image_width = Some(8192);
-    limits.max_image_height = Some(8192);
+    limits.max_image_width = Some(max_dimension);
+    limits.max_image_height = Some(max_dimension);
     limits.max_alloc = Some(256 * 1024 * 1024);
     reader.limits(limits);
     let mut decoder = reader.into_decoder().map_err(|error| error.to_string())?;
     let (width, height) = decoder.dimensions();
-    if width == 0 || height == 0 || u64::from(width) * u64::from(height) > 40_000_000 {
-        return Err("Input must contain 1..=40 million pixels".into());
+    if width == 0 || height == 0 || u64::from(width) * u64::from(height) > max_pixels {
+        return Err("Input pixel limit exceeded".into());
     }
     let orientation = decoder.orientation().map_err(|error| error.to_string())?;
     let mut image = DynamicImage::from_decoder(decoder).map_err(|error| error.to_string())?;

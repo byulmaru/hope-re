@@ -2,6 +2,10 @@
 
 An optional native CPU service for SNS image uploads. No Node addon, npm package, desktop runtime, or Cloudflare Worker deployment is required. The host calls HTTP and stores the returned WebP.
 
+Media's Temporal integration instead uses the local `hope-infer` executable from
+the isolated [Activity Worker](../worker/README.md), without calling this HTTP
+service. The HTTP contract remains unchanged.
+
 ## Keeping upstream updates manageable
 
 The original repository structure, frontend, desktop manifests, and release workflows remain intact. `src/upstream.rs` compiles the existing algorithms, preprocessing, SPSA, tiling, and types directly from `../src-tauri/`; there is no copied solver to synchronize.
