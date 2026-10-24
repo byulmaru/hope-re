@@ -95,11 +95,12 @@ render assertions. The image workflow builds and smoke-tests both Linux
 architectures when an image input or the smoke test changes.
 
 `npm test` uses fake storage/inference for focused failure and cancellation
-checks. `test:temporal` downloads a local Temporal development server to
-`/private/tmp/hope-temporal-cli`; it tests real scheduling, retry reuse and
-pending-write cancellation with memory storage. To use real inference in that
-test, export absolute `HOPE_INFER_BIN`, `HOPE_MODEL_DIR`, `HOPE_INFERENCE_LOCK`
-and `HOPE_TEST_IMAGE` (a PNG). It still does not test real R2.
+checks. `test:temporal` downloads a local Temporal development server under
+`hope-temporal-cli` in the OS temporary directory; it tests real scheduling,
+retry reuse and pending-write cancellation with memory storage. To use real
+inference in that test, export absolute `HOPE_INFER_BIN`, `HOPE_MODEL_DIR`,
+`HOPE_INFERENCE_LOCK` and `HOPE_TEST_IMAGE` (a PNG). It still does not test real
+R2.
 
 With those variables, `npm run test:engine` also checks a real running child's
 cooperative SIGTERM drain and rejection of a second concurrent inference process.

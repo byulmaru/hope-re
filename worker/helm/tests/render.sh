@@ -5,21 +5,21 @@ chart_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image_args=(--set-string image.repository=registry.example.invalid/hope-worker --set-string image.tag=0123456789abcdef0123456789abcdef01234567)
 
 assert_contains() {
-  if ! rg -F -- "$1" <<<"$2" >/dev/null; then
+  if ! grep -Fq -- "$1" <<<"$2"; then
     printf 'expected rendered output to contain: %s\n' "$1" >&2
     exit 1
   fi
 }
 
 assert_not_contains() {
-  if rg -F -- "$1" <<<"$2" >/dev/null; then
+  if grep -Fq -- "$1" <<<"$2"; then
     printf 'expected rendered output not to contain: %s\n' "$1" >&2
     exit 1
   fi
 }
 
 assert_kind_absent() {
-  if rg -x -F -- "kind: $1" <<<"$2" >/dev/null; then
+  if grep -Fxq -- "kind: $1" <<<"$2"; then
     printf 'unexpected rendered resource kind: %s\n' "$1" >&2
     exit 1
   fi
