@@ -30,6 +30,7 @@ def infer(image_tag, directory, request):
     command = [
         "docker",
         "run",
+        "--interactive",
         "--rm",
         "--network",
         "none",
