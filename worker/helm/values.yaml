@@ -1,0 +1,35 @@
+image:
+  repository: ""
+  tag: ""
+  digest: ""
+
+imagePullSecrets: []
+
+secret:
+  existingSecret: ""
+
+vault:
+  enabled: false
+  authRef: ""
+
+temporal:
+  address: temporal-frontend.temporal.svc.cluster.local:7233
+  tls: false
+
+r2:
+  endpoint: https://676a2d8e52515abd22c0edda7364cf73.r2.cloudflarestorage.com
+
+tmp:
+  sizeLimit: 1Gi
+
+terminationGracePeriodSeconds: 1950
+
+resources:
+  requests:
+    cpu: 2
+    memory: 4Gi
+    ephemeral-storage: 1Gi
+  limits:
+    cpu: 4
+    memory: 8Gi
+    ephemeral-storage: 2Gi

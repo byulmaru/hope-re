@@ -1,0 +1,43 @@
+name: Worker checks
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/worker-checks.yml
+      - "worker/**"
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/worker-checks.yml
+      - "worker/**"
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:temporal
+
+  helm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.2.2
+      - run: helm lint worker/helm
+      - run: bash worker/helm/tests/render.sh

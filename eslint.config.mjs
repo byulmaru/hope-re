@@ -12,6 +12,8 @@ export default antfu({
   },
   ignores: [
     ".pnpm-store/**",
+    "worker/helm/Chart.yaml",
+    "worker/helm/templates/**",
     "**/src-tauri/gen/*",
     "**/src-tauri/target/*",
   ],
