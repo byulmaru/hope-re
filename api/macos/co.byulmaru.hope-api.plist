@@ -6,8 +6,7 @@
   <string>co.byulmaru.hope-api</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/sh</string>
-    <string>/Users/YOUR_USER/Projects/byulmaru/hope-re/api/macos/hope-api-launch.sh</string>
+    <string>/Users/YOUR_USER/Projects/byulmaru/hope-re/api/target/release/hope-api</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -15,8 +14,6 @@
     <string>127.0.0.1:8787</string>
     <key>HOPE_API_ALGORITHM</key>
     <string>nightshade</string>
-    <key>HOPE_API_BINARY</key>
-    <string>/Users/YOUR_USER/Projects/byulmaru/hope-re/api/target/release/hope-api</string>
     <key>HOPE_MODEL_DIR</key>
     <string>/Users/YOUR_USER/Projects/byulmaru/hope-re/api/models</string>
   </dict>
