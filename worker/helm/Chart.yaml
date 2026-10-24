@@ -1,0 +1,5 @@
+apiVersion: v2
+name: hope-worker
+description: Temporal worker for Hope image protection
+type: application
+version: 0.1.0

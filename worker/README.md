@@ -51,6 +51,31 @@ After 20 seconds an unresponsive child is killed, and its close event is still
 awaited. An already-started R2 PUT is always awaited before cancellation is
 acknowledged. No fire-and-forget object writes are used.
 
+## Container image
+
+Build from the repository root with:
+
+```sh
+docker build -f worker/Dockerfile -t hope-re-worker .
+```
+
+The image contains Node 24, the native `hope-infer` binary and all three official
+models. The build downloads and verifies each model against `api/models.json`; the
+container does not fetch models at runtime. The image supports `linux/amd64` and
+`linux/arm64`. Pull requests build both platforms without publishing; pushes to
+`main` publish `ghcr.io/byulmaru/hope-re-worker:<commit-sha>`.
+
+The process runs as UID/GID `10001:10001`. Node starts as PID 1 so SIGTERM reaches
+the Temporal SDK and its child process. The image defaults are
+`HOPE_INFER_BIN=/app/bin/hope-infer`, `HOPE_MODEL_DIR=/app/models` and
+`HOPE_INFERENCE_LOCK=/tmp/hope-inference.lock`.
+
+Provide `TEMPORAL_ADDRESS`, `TEMPORAL_TLS`, `R2_ENDPOINT`,
+`MEDIA_STAGING_BUCKET`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` through
+the deployment environment. `AWS_SESSION_TOKEN` is optional. Kubernetes/Vault
+configuration must inject secret values at runtime; no credentials are included
+in the image. See the [Kubernetes Helm chart](helm/).
+
 ## Build and checks
 
 Use native Node 24 and Rust 1.93.1 or later. This is an independent package; do not
@@ -87,7 +112,12 @@ That check runs all three actual models, reports dimensions/calls/pixel changes
 and checks pre-cancelled solver behavior. Two iterations are diagnostic; they do
 not establish protection effectiveness or a production iteration preset.
 
-## Mac mini configuration and deployment
+## Deployment
+
+The macOS LaunchAgent and Kubernetes Deployment are mutually exclusive choices
+for the production poller. Keep exactly one active Worker polling namespace
+`media`, task queue `media-hope`. The local singleton socket and inference lock
+do not coordinate across hosts or replicas.
 
 The Temporal web dashboard is not the gRPC frontend. The current dashboard peer
 does not accept TCP 7233. A cluster operator must expose the Temporal frontend's
@@ -126,28 +156,28 @@ python3 worker/macos/service.py stop
 
 The installer validates build/model/Keychain prerequisites, drains/unloads the
 old launchd job before loading its replacement, and refuses a timed-out stop.
-The one fixed launchd label is the only supported production deployment.
 KeepAlive restarts failures, with a 30-second throttle. ExitTimeOut exceeds the
 Worker's graceful-shutdown window. A fixed localhost singleton socket prevents
 two Node Worker processes on this host. A native exclusive OS file lock at
 `~/Library/Application Support/co.byulmaru.hope-worker/inference.lock` prevents
-overlapping inference even if the parent dies before its child exits. Never
-delete the lock file or run a second host/queue poller; this is not a distributed
-lock and does not authorize scaling. Logs under `~/Library/Logs/co.byulmaru.hope-worker`
-contain fixed lifecycle/warning/error event names, not provider diagnostics.
+overlapping inference even if the parent dies before its child exits. Logs under
+`~/Library/Logs/co.byulmaru.hope-worker` contain fixed lifecycle/warning/error
+event names, not provider diagnostics.
 
-This is a per-login-user LaunchAgent: log out or sleep stops availability. Ensure
-the Mac mini remains awake and the intended user session is active. A daemon or
-unattended boot credential policy is a separate deployment decision. Service
-registration or a healthy process alone is not proof of integration readiness.
+The Mac LaunchAgent runs per login user: log out or sleep stops availability.
+Ensure the Mac mini remains awake and the intended user session is active. A
+daemon or unattended boot credential policy is a separate deployment decision.
+Service registration or a healthy process alone is not proof of integration
+readiness.
 
 ## Real integration gate
 
 Keep Media `hope.enabled=false` until the real end-to-end gate passes. The
 opt-in `npm run test:integration` requires `HOPE_REAL_INTEGRATION=1`, the real
-Temporal/R2 environment above and the four inference/test-image variables. Stop
-the production Worker first: the integration runner is the only `media-hope`
-poller during this test. It creates a unique workflow queue in namespace `media`
+Temporal/R2 environment above and the four inference/test-image variables. Drain
+and stop the active production deployment first (LaunchAgent stop or Kubernetes
+pod termination); the integration runner must be the only `media-hope` poller
+during this test. It creates a unique workflow queue in namespace `media`
 and fresh private source/result keys, runs actual inference, then repeats the
 same request to verify idempotence. Its finally block deletes only those two
 test objects. It never publishes any image. The test credentials therefore also
@@ -155,6 +185,7 @@ need deletion access for their own temporary artifacts.
 
 Finish acceptance with Media's actual Workflow/Nexus path, failure after a prior
 successful result, no public publication on failure, pending-write cancellation
-and an observed launchd stop/start with no overlapping workers. A local dev
-Temporal run or fake R2 tests cannot check these operational conditions. Do not
-claim rollout, production R2 or Media acceptance from the local checks alone.
+and an observed graceful drain and restart of the selected deployment (LaunchAgent
+stop/start or Kubernetes pod termination/rollout) with no overlapping pollers. A
+local dev Temporal run or fake R2 tests cannot check these operational conditions.
+Do not claim rollout, production R2 or Media acceptance from the local checks alone.
