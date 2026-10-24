@@ -7,7 +7,7 @@ COPY worker/tsconfig.json ./tsconfig.json
 COPY worker/src ./src
 RUN npm run build && npm prune --omit=dev
 
-FROM rust:1.93.1-bookworm AS infer-build
+FROM rust:1.93.1-trixie AS infer-build
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
@@ -20,7 +20,7 @@ RUN python3 api/download_models.py --model-dir /models
 RUN mkdir -p /stage/bin /stage/lib /stage/models && install -m 0755 api/target/release/hope-infer /stage/bin/hope-infer && install -m 0644 /models/*.onnx /stage/models/
 RUN ort_library="$(find api/target/release/build -type f -name 'libonnxruntime.so*' -print -quit)" && test -n "$ort_library" && cp -a "$(dirname "$ort_library")"/*.so* /stage/lib/
 
-FROM node:24-bookworm-slim
+FROM node:24-trixie-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/worker

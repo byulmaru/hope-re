@@ -90,6 +90,10 @@ npm test
 npm run test:temporal
 ```
 
+Pull requests touching `worker/` run these Node checks plus Helm 4.2.2 lint and
+render assertions. The image workflow builds and smoke-tests both Linux
+architectures when an image input or the smoke test changes.
+
 `npm test` uses fake storage/inference for focused failure and cancellation
 checks. `test:temporal` downloads a local Temporal development server to
 `/private/tmp/hope-temporal-cli`; it tests real scheduling, retry reuse and
@@ -127,6 +131,8 @@ use the dashboard HTTPS endpoint as a gRPC address, or silently change another
 repository's infrastructure. Verify the destination cluster and namespace
 `media` before starting the Worker. `TEMPORAL_TLS` must match that frontend; a
 plain TCP frontend is transported inside the encrypted Tailscale path.
+
+### macOS-only LaunchAgent
 
 Create a macOS Keychain generic-password item with service
 `co.byulmaru.hope-worker`. Its password is a JSON object containing:
@@ -174,18 +180,53 @@ readiness.
 
 Keep Media `hope.enabled=false` until the real end-to-end gate passes. The
 opt-in `npm run test:integration` requires `HOPE_REAL_INTEGRATION=1`, the real
-Temporal/R2 environment above and the four inference/test-image variables. Drain
-and stop the active production deployment first (LaunchAgent stop or Kubernetes
-pod termination); the integration runner must be the only `media-hope` poller
-during this test. It creates a unique workflow queue in namespace `media`
-and fresh private source/result keys, runs actual inference, then repeats the
-same request to verify idempotence. Its finally block deletes only those two
-test objects. It never publishes any image. The test credentials therefore also
-need deletion access for their own temporary artifacts.
+Temporal/R2 environment above and `HOPE_INFER_BIN`, `HOPE_MODEL_DIR`,
+`HOPE_INFERENCE_LOCK`, and `HOPE_TEST_IMAGE`. Use the private
+`byulmaru-media-staging` bucket and a staging-only credential with access to its
+temporary test objects; never pass secret values as command-line arguments.
+
+The test runner starts its own Activity Worker on `media-hope`, so it must be
+the only poller for that queue. Before starting it, stop the macOS LaunchAgent
+if it is running and coordinate a staging maintenance window with the GitOps
+operator. Pause reconciliation for the `hope-worker` Deployment so GitOps does
+not restore its fixed one-replica target during the test. Do not pause or change
+other resources in `media`.
+
+Scale the Kubernetes Worker to zero and wait for every Pod to disappear through
+its full termination grace period. The chart allows 1950 seconds for shutdown;
+use at least 33 minutes and do not force-delete Pods.
+
+```sh
+kubectl scale deployment/hope-worker -n media --replicas=0
+kubectl wait --for=delete pod -n media -l app.kubernetes.io/name=hope-worker --timeout=33m
+kubectl get pods -n media -l app.kubernetes.io/name=hope-worker
+```
+
+Run the test only after `kubectl get pods` reports no matching Pods:
+
+```sh
+cd worker
+HOPE_REAL_INTEGRATION=1 npm run test:integration
+```
+
+The test creates fresh private source/result keys, runs actual inference, then
+repeats the same request to verify idempotence. Its `finally` block deletes only
+those two test objects. It never publishes an image. If the wait times out, any
+Pod remains, or the test process is still running, do not start another poller.
+
+After the test process exits, restore one Worker even if the test failed, wait
+for the Deployment rollout, and verify the started event and queue polling
+through the existing Temporal tooling. Then resume GitOps reconciliation and
+confirm the deployment remains at one active replica.
+
+```sh
+kubectl scale deployment/hope-worker -n media --replicas=1
+kubectl rollout status deployment/hope-worker -n media --timeout=33m
+kubectl logs deployment/hope-worker -n media --since=5m
+```
 
 Finish acceptance with Media's actual Workflow/Nexus path, failure after a prior
 successful result, no public publication on failure, pending-write cancellation
-and an observed graceful drain and restart of the selected deployment (LaunchAgent
-stop/start or Kubernetes pod termination/rollout) with no overlapping pollers. A
+and an observed graceful drain and restart with no overlapping pollers. A
 local dev Temporal run or fake R2 tests cannot check these operational conditions.
 Do not claim rollout, production R2 or Media acceptance from the local checks alone.

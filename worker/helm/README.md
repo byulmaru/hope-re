@@ -40,3 +40,5 @@ kubectl logs -n media deployment/hope-worker -f
 ```
 
 The Deployment uses `Recreate` to avoid overlap during planned upgrades. Kubernetes only guarantees old-pod termination before replacement on upgrades; force deletion or a node partition can still leave work overlapping, and the worker has no distributed lock. The 1950-second termination grace period allows the worker's 32-minute shutdown force timeout to complete. Vault secret refresh does not restart the pod: after rotating credentials, wait for VSO sync and an in-flight activity to finish, then restart the Deployment deliberately.
+
+Before running the real `media-hope` integration test, follow the [worker integration gate](../README.md#real-integration-gate) to pause GitOps reconciliation, scale this Deployment to zero, wait for all Pods to terminate, then restore one replica afterward.
