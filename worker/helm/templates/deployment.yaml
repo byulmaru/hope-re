@@ -1,0 +1,85 @@
+{{- include "hope-worker.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hope-worker.fullname" . }}
+  labels:
+    {{- include "hope-worker.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hope-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "hope-worker.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "hope-worker.fullname" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hope-worker
+          image: {{ include "hope-worker.image" . | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: {{ required "temporal.address is required" .Values.temporal.address | quote }}
+            - name: TEMPORAL_TLS
+              value: {{ .Values.temporal.tls | toString | quote }}
+            - name: R2_ENDPOINT
+              value: {{ required "r2.endpoint is required" .Values.r2.endpoint | quote }}
+            - name: MEDIA_STAGING_BUCKET
+              value: byulmaru-media-staging
+            - name: HOPE_INFER_BIN
+              value: /app/bin/hope-infer
+            - name: HOPE_MODEL_DIR
+              value: /app/models
+            - name: HOPE_INFERENCE_LOCK
+              value: /tmp/hope-inference.lock
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hope-worker.credentialsSecretName" . }}
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hope-worker.credentialsSecretName" . }}
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hope-worker.credentialsSecretName" . }}
+                  key: AWS_SESSION_TOKEN
+                  optional: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: {{ .Values.tmp.sizeLimit | quote }}
