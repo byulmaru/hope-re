@@ -12,7 +12,7 @@ ITERATIONS = 2
 TIMEOUT = 1200
 ALGORITHMS = ("noise", "glaze", "nightshade")
 MEMORY_LIMIT = 2 * 1024 * 1024 * 1024
-CPU_LIMIT = 0.5
+CPU_LIMIT = 1.5
 WORKER_SMOKE = """import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 
