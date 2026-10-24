@@ -17,6 +17,7 @@ COPY api/src ./api/src
 COPY src-tauri/src/onnx_integration/protection ./src-tauri/src/onnx_integration/protection
 RUN cargo build --manifest-path api/Cargo.toml --release --locked --bin hope-infer
 RUN python3 api/download_models.py --model-dir /models
+RUN HOPE_MODEL_DIR=/models cargo test --release --locked --manifest-path api/Cargo.toml --bin hope-infer protection::tests::loads_only_the_requested_model_session -- --ignored --exact --test-threads=1
 RUN mkdir -p /stage/bin /stage/models && install -m 0755 api/target/release/hope-infer /stage/bin/hope-infer && install -m 0644 /models/*.onnx /stage/models/
 
 FROM node:24-trixie-slim

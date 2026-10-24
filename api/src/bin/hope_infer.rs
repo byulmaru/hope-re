@@ -155,8 +155,8 @@ fn run(request: Request, state: &ProtectionState) -> Result<serde_json::Value, F
         .map_err(|_| processing_error(true))?;
     lock.try_lock().map_err(|_| processing_error(true))?;
     let model_dir = std::env::var("HOPE_MODEL_DIR").map_err(|_| processing_error(false))?;
-    let mut models =
-        protection::Models::load(Path::new(&model_dir)).map_err(|_| processing_error(false))?;
+    let mut models = protection::Models::load_for(Path::new(&model_dir), &options.algorithm)
+        .map_err(|_| processing_error(false))?;
     let (protected, calls) =
         models
             .protect_with_state(&image, &options, state)
@@ -315,7 +315,7 @@ mod tests {
             std::fs::remove_file(output_path).unwrap();
         }
         let model_dir = std::env::var("HOPE_MODEL_DIR").unwrap();
-        let mut models = protection::Models::load(Path::new(&model_dir)).unwrap();
+        let mut models = protection::Models::load_for(Path::new(&model_dir), "noise").unwrap();
         state.is_cancelled.store(true, Ordering::SeqCst);
         let options = protection::Options {
             algorithm: "noise".into(),

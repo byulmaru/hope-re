@@ -114,8 +114,25 @@ impl Models {
     }
 
     pub fn load(directory: &Path) -> Result<Self, String> {
+        Self::load_selected(directory, None)
+    }
+
+    #[allow(dead_code)]
+    pub fn load_for(directory: &Path, algorithm: &str) -> Result<Self, String> {
+        Self::load_selected(directory, Some(algorithm))
+    }
+
+    fn load_selected(directory: &Path, selected_algorithm: Option<&str>) -> Result<Self, String> {
         let specs: Vec<ModelSpec> = serde_json::from_str(include_str!("../models.json"))
             .map_err(|error| error.to_string())?;
+        if let Some(algorithm) = selected_algorithm {
+            if !specs
+                .iter()
+                .any(|spec| spec.algorithm.as_str() == algorithm)
+            {
+                return Err(format!("Unknown model algorithm: {algorithm}"));
+            }
+        }
         let mut sessions = HashMap::new();
         for spec in specs {
             let path = directory.join(&spec.filename);
@@ -132,6 +149,9 @@ impl Models {
             let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
             if format!("{:x}", Sha256::digest(&bytes)) != spec.sha256 {
                 return Err(format!("{}: model SHA-256 mismatch", path.display()));
+            }
+            if selected_algorithm.is_some_and(|algorithm| algorithm != spec.algorithm.as_str()) {
+                continue;
             }
             let session = Session::builder()
                 .map_err(|error| error.to_string())?
@@ -220,5 +240,20 @@ mod tests {
         options.iterations = 501;
         assert!(options.validate().is_err());
         assert!(Models::load(Path::new("nonexistent-model-directory")).is_err());
+        assert_eq!(
+            Models::load_for(Path::new("nonexistent-model-directory"), "unknown")
+                .err()
+                .as_deref(),
+            Some("Unknown model algorithm: unknown")
+        );
+    }
+
+    #[test]
+    #[ignore = "requires official weights in HOPE_MODEL_DIR"]
+    fn loads_only_the_requested_model_session() {
+        let directory = std::env::var("HOPE_MODEL_DIR").unwrap();
+        let models = Models::load_for(Path::new(&directory), "nightshade").unwrap();
+        assert_eq!(models.0.len(), 1);
+        assert!(models.0.contains_key("nightshade"));
     }
 }
