@@ -5,7 +5,7 @@ chart_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image_args=(--set-string image.repository=registry.example.invalid/hope-worker --set-string image.tag=0123456789abcdef0123456789abcdef01234567)
 
 assert_contains() {
-  if ! grep -Fq -- "$1" <<<"$2"; then
+  if [[ "$2" != *"$1"* ]]; then
     printf 'expected rendered output to contain: %s\n' "$1" >&2
     exit 1
   fi
@@ -45,6 +45,7 @@ assert_contains 'kind: ServiceAccount' "$existing_render"
 assert_contains 'automountServiceAccountToken: false' "$existing_render"
 assert_contains 'replicas: 1' "$existing_render"
 assert_contains 'type: Recreate' "$existing_render"
+assert_contains $'      nodeSelector:\n        kubernetes.io/os: linux\n        kubernetes.io/arch: arm64' "$existing_render"
 assert_contains 'registry.example.invalid/hope-worker:0123456789abcdef0123456789abcdef01234567' "$existing_render"
 assert_contains 'terminationGracePeriodSeconds: 1950' "$existing_render"
 assert_contains 'runAsUser: 10001' "$existing_render"

@@ -2,6 +2,8 @@
 
 This chart installs one `hope-worker` Deployment into the release namespace. Install it into the existing `media` namespace with a registry repository and either an immutable image tag or a SHA-256 digest. The chart rejects an unconfigured image, `latest`, and simultaneous tag and digest values. If the package is private, provide `imagePullSecrets` as a list of existing Secret names in `media`; the chart only references their names and never creates or renders registry credentials.
 
+The image supports `linux/arm64` only. The chart pins the Deployment pods to Linux ARM64 nodes with the `kubernetes.io/os: linux` and `kubernetes.io/arch: arm64` node selectors.
+
 ```sh
 helm upgrade --install hope-worker worker/helm \
   --namespace media \

@@ -61,9 +61,10 @@ docker build -f worker/Dockerfile -t hope-re-worker .
 
 The image contains Node 24, the native `hope-infer` binary and all three official
 models. The build downloads and verifies each model against `api/models.json`; the
-container does not fetch models at runtime. The image supports `linux/amd64` and
-`linux/arm64`. Pull requests build both platforms without publishing; pushes to
-`main` publish `ghcr.io/byulmaru/hope-re-worker:<commit-sha>`.
+container does not fetch models at runtime. The image targets `linux/arm64` only.
+Pull requests build the image and smoke-test all three models on a native
+`ubuntu-24.04-arm` runner; pushes to `main` publish it directly as
+`ghcr.io/byulmaru/hope-re-worker:<commit-sha>`.
 
 The process runs as UID/GID `10001:10001`. Node starts as PID 1 so SIGTERM reaches
 the Temporal SDK and its child process. The image defaults are
@@ -91,8 +92,8 @@ npm run test:temporal
 ```
 
 Pull requests touching `worker/` run these Node checks plus Helm 4.2.2 lint and
-render assertions. The image workflow builds and smoke-tests both Linux
-architectures when an image input or the smoke test changes.
+render assertions. The image workflow builds and smoke-tests `linux/arm64` when
+an image input or the smoke test changes.
 
 `npm test` uses fake storage/inference for focused failure and cancellation
 checks. `test:temporal` downloads a local Temporal development server under

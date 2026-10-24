@@ -19,6 +19,9 @@ spec:
         {{- include "hope-worker.labels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "hope-worker.fullname" . }}
+      nodeSelector:
+        kubernetes.io/os: linux
+        kubernetes.io/arch: arm64
       automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
