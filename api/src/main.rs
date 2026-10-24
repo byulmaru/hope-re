@@ -640,8 +640,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn client_disconnect_cancels_blocking_work_and_keeps_slot_until_exit() {
+    async fn assert_client_disconnect_cancels_blocking_work_and_keeps_slot_until_exit(
+        connection: &str,
+    ) {
         let work = Arc::new(DisconnectTestWork::default());
         let _release = ReleaseOnDrop(work.clone());
         let state = Arc::new(DisconnectTestState {
@@ -666,7 +667,7 @@ mod tests {
         let mut client = TcpStream::connect(address).unwrap();
         write!(
             client,
-            "POST /work HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n"
+            "POST /work HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: {connection}\r\n\r\n"
         )
         .unwrap();
         tokio::time::timeout(Duration::from_secs(2), async {
@@ -694,7 +695,9 @@ mod tests {
             .await;
             let _ = shutdown.send(());
             let _ = tokio::time::timeout(Duration::from_secs(2), server).await;
-            panic!("the request future survived a disconnected client");
+            panic!(
+                "the request future survived a disconnected client with Connection: {connection}"
+            );
         }
         assert!(!work.finished.load(Ordering::SeqCst));
         let response = app
@@ -743,5 +746,12 @@ mod tests {
             .unwrap()
             .unwrap()
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn client_disconnect_cancels_blocking_work_and_keeps_slot_until_exit() {
+        assert_client_disconnect_cancels_blocking_work_and_keeps_slot_until_exit("keep-alive")
+            .await;
+        assert_client_disconnect_cancels_blocking_work_and_keeps_slot_until_exit("close").await;
     }
 }
