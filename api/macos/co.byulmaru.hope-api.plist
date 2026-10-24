@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>co.byulmaru.hope-api</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>/Users/YOUR_USER/Projects/byulmaru/hope-re/api/macos/hope-api-launch.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOPE_API_ADDR</key>
+    <string>127.0.0.1:8787</string>
+    <key>HOPE_API_ALGORITHM</key>
+    <string>nightshade</string>
+    <key>HOPE_API_BINARY</key>
+    <string>/Users/YOUR_USER/Projects/byulmaru/hope-re/api/target/release/hope-api</string>
+    <key>HOPE_MODEL_DIR</key>
+    <string>/Users/YOUR_USER/Projects/byulmaru/hope-re/api/models</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+</dict>
+</plist>

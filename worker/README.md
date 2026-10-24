@@ -2,8 +2,12 @@
 
 Native CPU inference for PROD-1151. Media schedules `prepareHopeUpload` on namespace
 `media`, task queue `media-hope`. This package uses the same Temporal TypeScript
-SDK version as Media PR #20. It invokes the local `hope-infer` Rust executable;
-there is no HTTP service or Media-side Hope deployment.
+SDK version as Media PR #20. It invokes the local `hope-infer` Rust executable
+and remains the legacy local-inference Temporal Worker option. The HTTP path uses
+the separate [API](../api/README.md) and [macOS service template and Media cutover
+guide](../api/macos/README.md); a Media-owned Temporal consumer handles R2 reads
+and writes and calls that service for inference. This Worker is not the Mac HTTP
+service.
 
 ## Ownership and contract
 
