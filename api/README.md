@@ -1,6 +1,6 @@
 # Hope HTTP adapter
 
-A native CPU service for SNS image uploads, reached through private Tailscale Serve. No Node addon, npm package, desktop runtime, or Cloudflare Worker deployment is required. The host calls HTTP and stores the returned WebP.
+A native ONNX Runtime service for SNS image uploads, reached through private Tailscale Serve. macOS requires the CoreML execution provider and allows ONNX Runtime to place unsupported operators on CPU; other platforms use CPU. The host calls HTTP and stores the returned WebP. No Node addon, npm package, desktop runtime, or Cloudflare Worker deployment is required.
 
 Media owns the Temporal Activity, queue, retries, idempotency, R2, and publication
 flow. It sends image bytes to this service and stores the returned WebP through
@@ -35,7 +35,7 @@ All three pinned files are size and SHA-256 checked before listening. By default
 
 ## HTTP contract
 
-`GET /health` returns readiness, CPU provider, and available algorithm names. In selected mode it reports only the configured algorithm.
+`GET /health` returns readiness, configured provider (`coreml` on macOS, `cpu` elsewhere), and available algorithm names. In selected mode it reports only the configured algorithm. macOS startup fails if CoreML is unavailable or cannot be registered. The CoreML provider uses CPU and Neural Engine compute units, but ONNX Runtime may execute unsupported operators on CPU; the health value does not claim that every node ran on CoreML or that the Neural Engine was used.
 
 `POST /protect` accepts raw JPEG/PNG/WebP bytes, not multipart, JSON, or Base64. Query parameters:
 

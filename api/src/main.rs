@@ -25,6 +25,11 @@ use upstream::types::ProtectionState;
 
 const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 
+#[cfg(target_os = "macos")]
+const INFERENCE_PROVIDER: &str = "coreml";
+#[cfg(not(target_os = "macos"))]
+const INFERENCE_PROVIDER: &str = "cpu";
+
 struct AppState {
     models: Mutex<Models>,
     slot: Arc<Semaphore>,
@@ -102,7 +107,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
         .selected_algorithm
         .as_ref()
         .map_or_else(|| json!(ALGORITHMS), |algorithm| json!([algorithm]));
-    Json(json!({"ready": true, "provider": "cpu", "algorithms": algorithms}))
+    Json(json!({"ready": true, "provider": INFERENCE_PROVIDER, "algorithms": algorithms}))
 }
 
 async fn protect(State(state): State<Arc<AppState>>, request: Request) -> Response {
@@ -257,7 +262,7 @@ async fn main() -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .map_err(|error| error.to_string())?;
-    eprintln!("Hope API listening on {address}; CPU, one job at a time; loopback only");
+    eprintln!("Hope API listening on {address}; {INFERENCE_PROVIDER}, one job at a time; loopback only");
     axum::serve(listener, router(state))
         .await
         .map_err(|error| error.to_string())

@@ -107,6 +107,32 @@ struct ModelSpec {
 
 pub struct Models(HashMap<String, Session>);
 
+fn build_execution_providers() -> Result<Vec<ort::ep::ExecutionProviderDispatch>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use ort::ep::{CoreML, ExecutionProvider};
+
+        let coreml = CoreML::default();
+        if !coreml
+            .is_available()
+            .map_err(|error| format!("Failed to check CoreML availability: {error}"))?
+        {
+            return Err("CoreML execution provider is unavailable".into());
+        }
+        Ok(vec![
+            coreml
+                .with_subgraphs(true)
+                .with_compute_units(ort::ep::coreml::ComputeUnits::CPUAndNeuralEngine)
+                .build()
+                .error_on_failure(),
+        ])
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(vec![ort::ep::CPU::default().build().error_on_failure()])
+    }
+}
+
 impl Models {
     #[cfg(test)]
     pub fn empty_for_test() -> Self {
@@ -156,7 +182,7 @@ impl Models {
                 .map_err(|error| error.to_string())?
                 .with_optimization_level(GraphOptimizationLevel::Level3)
                 .map_err(|error| error.to_string())?
-                .with_execution_providers([ort::ep::CPU::default().build().error_on_failure()])
+                .with_execution_providers(build_execution_providers()?)
                 .map_err(|error| error.to_string())?
                 .commit_from_memory(&bytes)
                 .map_err(|error| error.to_string())?;
