@@ -119,13 +119,11 @@ fn build_execution_providers() -> Result<Vec<ort::ep::ExecutionProviderDispatch>
         {
             return Err("CoreML execution provider is unavailable".into());
         }
-        Ok(vec![
-            coreml
-                .with_subgraphs(true)
-                .with_compute_units(ort::ep::coreml::ComputeUnits::CPUAndNeuralEngine)
-                .build()
-                .error_on_failure(),
-        ])
+        Ok(vec![coreml
+            .with_subgraphs(true)
+            .with_compute_units(ort::ep::coreml::ComputeUnits::CPUAndNeuralEngine)
+            .build()
+            .error_on_failure()])
     }
     #[cfg(not(target_os = "macos"))]
     {

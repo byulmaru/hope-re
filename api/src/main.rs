@@ -262,7 +262,9 @@ async fn main() -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .map_err(|error| error.to_string())?;
-    eprintln!("Hope API listening on {address}; {INFERENCE_PROVIDER}, one job at a time; loopback only");
+    eprintln!(
+        "Hope API listening on {address}; {INFERENCE_PROVIDER}, one job at a time; loopback only"
+    );
     axum::serve(listener, router(state))
         .await
         .map_err(|error| error.to_string())
