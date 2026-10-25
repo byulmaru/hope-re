@@ -7,7 +7,6 @@ use axum::{
     body::to_bytes,
     extract::{Request, State},
     http::{header, HeaderValue, StatusCode},
-    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -21,7 +20,6 @@ use std::{
     sync::{atomic::Ordering, Arc, Mutex},
     time::{Duration, Instant},
 };
-use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 use upstream::types::ProtectionState;
 
@@ -30,7 +28,6 @@ const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 struct AppState {
     models: Mutex<Models>,
     slot: Arc<Semaphore>,
-    authorization: String,
     selected_algorithm: Option<String>,
 }
 
@@ -63,18 +60,6 @@ fn error(status: StatusCode, message: impl Into<String>) -> Response {
         .into_response()
 }
 
-async fn authorize(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Response {
-    let actual = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .map(|value| value.as_bytes())
-        .unwrap_or_default();
-    if !bool::from(actual.ct_eq(state.authorization.as_bytes())) {
-        return reject(request, StatusCode::UNAUTHORIZED, "Bearer token required").await;
-    }
-    next.run(request).await
-}
-
 async fn reject(request: Request, status: StatusCode, message: impl Into<String>) -> Response {
     let mut body = request.into_body();
     let _ = tokio::time::timeout(Duration::from_secs(30), async {
@@ -99,6 +84,17 @@ fn selected_algorithm(value: Result<String, std::env::VarError>) -> Result<Optio
         Err(std::env::VarError::NotPresent) => Ok(None),
         Err(error) => Err(format!("Invalid HOPE_API_ALGORITHM: {error}")),
     }
+}
+
+fn listen_address(value: Result<String, std::env::VarError>) -> Result<SocketAddr, String> {
+    let address: SocketAddr = value
+        .unwrap_or_else(|_| "127.0.0.1:8787".into())
+        .parse()
+        .map_err(|_| "Invalid HOPE_API_ADDR")?;
+    if !address.ip().is_loopback() {
+        return Err("HOPE_API_ADDR must use a loopback address".into());
+    }
+    Ok(address)
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
@@ -239,22 +235,13 @@ fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/protect", post(protect))
-        .layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let selected_algorithm = selected_algorithm(std::env::var("HOPE_API_ALGORITHM"))?;
-    let token = std::env::var("HOPE_API_TOKEN")
-        .map_err(|_| "Set HOPE_API_TOKEN to a random secret of at least 32 bytes")?;
-    if token.len() < 32 || !token.bytes().all(|byte| byte.is_ascii_graphic()) {
-        return Err("HOPE_API_TOKEN must contain at least 32 visible ASCII bytes".into());
-    }
-    let address: SocketAddr = std::env::var("HOPE_API_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:8787".into())
-        .parse()
-        .map_err(|_| "Invalid HOPE_API_ADDR")?;
+    let address = listen_address(std::env::var("HOPE_API_ADDR"))?;
     let directory = std::env::var("HOPE_MODEL_DIR")
         .map_err(|_| "Set HOPE_MODEL_DIR to the directory containing all three model weights")?;
     let model_dir = Path::new(&directory);
@@ -265,13 +252,12 @@ async fn main() -> Result<(), String> {
     let state = Arc::new(AppState {
         models: Mutex::new(models),
         slot: Arc::new(Semaphore::new(1)),
-        authorization: format!("Bearer {token}"),
         selected_algorithm,
     });
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .map_err(|error| error.to_string())?;
-    eprintln!("Hope API listening on {address}; CPU, one job at a time; use a trusted network and TLS proxy");
+    eprintln!("Hope API listening on {address}; CPU, one job at a time; loopback only");
     axum::serve(listener, router(state))
         .await
         .map_err(|error| error.to_string())
@@ -343,7 +329,6 @@ mod tests {
         Arc::new(AppState {
             models: Mutex::new(Models::empty_for_test()),
             slot: Arc::new(Semaphore::new(1)),
-            authorization: "Bearer test-secret".into(),
             selected_algorithm: None,
         })
     }
@@ -361,8 +346,37 @@ mod tests {
         assert!(selected_algorithm(Ok("unknown".into())).is_err());
     }
 
+    #[test]
+    fn listen_address_accepts_ipv4_and_ipv6_loopback() {
+        assert_eq!(
+            listen_address(Err(std::env::VarError::NotPresent)).unwrap(),
+            "127.0.0.1:8787".parse::<SocketAddr>().unwrap()
+        );
+        assert_eq!(
+            listen_address(Ok("127.0.0.2:8787".into())).unwrap(),
+            "127.0.0.2:8787".parse::<SocketAddr>().unwrap()
+        );
+        assert_eq!(
+            listen_address(Ok("[::1]:8787".into())).unwrap(),
+            "[::1]:8787".parse::<SocketAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn listen_address_rejects_non_loopback_addresses() {
+        for address in [
+            "0.0.0.0:8787",
+            "[::]:8787",
+            "192.168.1.20:8787",
+            "100.64.0.2:8787",
+        ] {
+            assert!(listen_address(Ok(address.into())).is_err(), "{address}");
+        }
+    }
+
     #[tokio::test]
-    async fn rejects_unauthorized_invalid_oversized_and_busy_requests() {
+    async fn accepts_requests_without_authorization_and_rejects_invalid_oversized_and_busy_requests(
+    ) {
         let state = state();
         let app = router(state.clone());
         let response = app
@@ -375,7 +389,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(response.status(), StatusCode::OK);
         for (uri, body, expected) in [
             ("/protect?algorithm=noise", "", StatusCode::BAD_REQUEST),
             (
@@ -395,7 +409,6 @@ mod tests {
                     HttpRequest::builder()
                         .method("POST")
                         .uri(uri)
-                        .header(header::AUTHORIZATION, "Bearer test-secret")
                         .body(Body::from(body))
                         .unwrap(),
                 )
@@ -409,7 +422,6 @@ mod tests {
                 HttpRequest::builder()
                     .method("POST")
                     .uri("/protect?algorithm=noise&iterations=1")
-                    .header(header::AUTHORIZATION, "Bearer test-secret")
                     .header(header::CONTENT_LENGTH, MAX_BODY_BYTES + 1)
                     .body(Body::empty())
                     .unwrap(),
@@ -423,7 +435,6 @@ mod tests {
                 HttpRequest::builder()
                     .method("POST")
                     .uri("/protect?algorithm=noise&iterations=1")
-                    .header(header::AUTHORIZATION, "Bearer test-secret")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -439,7 +450,6 @@ mod tests {
             .oneshot(
                 HttpRequest::builder()
                     .uri("/health")
-                    .header(header::AUTHORIZATION, "Bearer test-secret")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -461,7 +471,6 @@ mod tests {
             .oneshot(
                 HttpRequest::builder()
                     .uri("/health")
-                    .header(header::AUTHORIZATION, "Bearer test-secret")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -475,7 +484,6 @@ mod tests {
                 HttpRequest::builder()
                     .method("POST")
                     .uri("/protect?algorithm=noise&iterations=1")
-                    .header(header::AUTHORIZATION, "Bearer test-secret")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -491,7 +499,6 @@ mod tests {
         let state = Arc::new(AppState {
             models: Mutex::new(Models::load(Path::new(&directory)).unwrap()),
             slot: Arc::new(Semaphore::new(1)),
-            authorization: "Bearer test-secret".into(),
             selected_algorithm: None,
         });
         let app = router(state.clone());
@@ -510,7 +517,6 @@ mod tests {
                             .uri(format!(
                                 "/protect?algorithm={algorithm}&iterations=1&max_edge=128"
                             ))
-                            .header(header::AUTHORIZATION, "Bearer test-secret")
                             .body(Body::from(input.clone()))
                             .unwrap(),
                     )
@@ -532,7 +538,6 @@ mod tests {
             .oneshot(
                 HttpRequest::builder()
                     .uri("/health")
-                    .header(header::AUTHORIZATION, "Bearer test-secret")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -548,7 +553,6 @@ mod tests {
         let state = Arc::new(AppState {
             models: Mutex::new(Models::load_for(Path::new(&directory), "nightshade").unwrap()),
             slot: Arc::new(Semaphore::new(1)),
-            authorization: "Bearer test-secret".into(),
             selected_algorithm: Some("nightshade".into()),
         });
         let app = router(state.clone());
@@ -567,7 +571,6 @@ mod tests {
                 HttpRequest::builder()
                     .method("POST")
                     .uri("/protect?algorithm=nightshade&iterations=2&max_edge=1024")
-                    .header(header::AUTHORIZATION, "Bearer test-secret")
                     .body(Body::from(input))
                     .unwrap(),
             )
@@ -595,7 +598,6 @@ mod tests {
             .oneshot(
                 HttpRequest::builder()
                     .uri("/health")
-                    .header(header::AUTHORIZATION, "Bearer test-secret")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -610,9 +612,12 @@ mod tests {
         let state = state();
         let _permit = state.slot.clone().try_acquire_owned().unwrap();
         let app = router(state);
-        for (authorization, status) in [
-            ("invalid", StatusCode::UNAUTHORIZED),
-            ("Bearer test-secret", StatusCode::SERVICE_UNAVAILABLE),
+        for (uri, status) in [
+            ("/protect?algorithm=noise", StatusCode::BAD_REQUEST),
+            (
+                "/protect?algorithm=noise&iterations=1",
+                StatusCode::SERVICE_UNAVAILABLE,
+            ),
         ] {
             let consumed = Arc::new(AtomicUsize::new(0));
             let observed = consumed.clone();
@@ -628,8 +633,7 @@ mod tests {
                 .oneshot(
                     HttpRequest::builder()
                         .method("POST")
-                        .uri("/protect?algorithm=noise&iterations=1")
-                        .header(header::AUTHORIZATION, authorization)
+                        .uri(uri)
                         .body(Body::new(body))
                         .unwrap(),
                 )

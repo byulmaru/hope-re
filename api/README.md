@@ -1,6 +1,6 @@
 # Hope HTTP adapter
 
-An optional native CPU service for SNS image uploads. No Node addon, npm package, desktop runtime, or Cloudflare Worker deployment is required. The host calls HTTP and stores the returned WebP.
+A native CPU service for SNS image uploads, reached through private Tailscale Serve. No Node addon, npm package, desktop runtime, or Cloudflare Worker deployment is required. The host calls HTTP and stores the returned WebP.
 
 Media owns the Temporal Activity, queue, retries, idempotency, R2, and publication
 flow. It sends image bytes to this service and stores the returned WebP through
@@ -24,11 +24,10 @@ From the repository root:
 cargo build --release --locked --manifest-path api/Cargo.toml
 python3 api/download_models.py --model-dir api/models
 export HOPE_MODEL_DIR="$PWD/api/models"
-export HOPE_API_TOKEN="$(openssl rand -hex 32)"
 api/target/release/hope-api
 ```
 
-`HOPE_API_TOKEN` must be a random secret of at least 32 visible ASCII bytes. All routes require `Authorization: Bearer ...`, including health checks. Never put the token into a query string or frontend code. The server defaults to `127.0.0.1:8787`; `HOPE_API_ADDR` can select another IP:port. Keep it on a private network and use a TLS reverse proxy for remote access. The token is not a substitute for TLS, rate limits, or upload authorization in the SNS.
+The server defaults to `127.0.0.1:8787`. `HOPE_API_ADDR` may select another port or loopback address, but startup rejects any non-loopback IP. The HTTP routes have no application-level authentication: use Tailscale Serve for private HTTPS access, govern access through the tailnet, and keep Funnel disabled. Do not expose the loopback HTTP listener publicly.
 
 `HOPE_API_ALGORITHM` is optional. When unset, all three algorithms are loaded and available as before. Set it to `noise`, `glaze`, or `nightshade` to verify all three pinned files but load only the selected ONNX session and reject requests for the other algorithms. Invalid values prevent startup. The macOS LaunchAgent template selects Nightshade and binds the backend to loopback; see [macOS service files](macos/README.md).
 
@@ -54,7 +53,6 @@ Unknown, duplicate, mismatched, or invalid query parameters are rejected. Select
 
 ```sh
 curl --fail-with-body \
-  -H "Authorization: Bearer $HOPE_API_TOKEN" \
   -H 'Content-Type: image/png' \
   --data-binary @upload.png \
   'http://127.0.0.1:8787/protect?algorithm=glaze&iterations=2&intensity=0.1&max_edge=1280&quality=80' \
@@ -71,13 +69,12 @@ A disconnected client cooperatively cancels inference. The solver observes cance
 
 ## Node / Worker caller
 
-This uses ordinary `fetch`, not native Node bindings. The caller connects through an authenticated private HTTPS endpoint; the native inference binary runs on a separate host.
+This uses ordinary `fetch`, not native Node bindings. The caller must be on the Tailscale tailnet; set `filterApi` to the private HTTPS hostname served by Tailscale. The native inference binary runs on the Mac mini and is reachable only through that private endpoint.
 
 ```js
 const response = await fetch(`${filterApi}/protect?algorithm=glaze&iterations=2&max_edge=1280`, {
   method: "POST",
   headers: {
-    "Authorization": `Bearer ${filterToken}`,
     "Content-Type": "application/octet-stream",
   },
   body: imageBytes,
