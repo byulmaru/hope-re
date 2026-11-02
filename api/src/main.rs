@@ -136,18 +136,6 @@ impl ProgressRegistration {
         }
     }
 
-    fn current(&self) -> Option<ProgressSnapshot> {
-        self.state
-            .progress
-            .lock()
-            .ok()
-            .and_then(|snapshot| {
-                snapshot
-                    .as_ref()
-                    .filter(|snapshot| snapshot.request_id == self.request_id)
-                    .cloned()
-            })
-    }
 }
 
 impl Drop for ProgressRegistration {
