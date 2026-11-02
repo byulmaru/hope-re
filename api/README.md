@@ -29,7 +29,7 @@ api/target/release/hope-api
 
 The server defaults to `127.0.0.1:8787`. `HOPE_API_ADDR` may select another port or loopback address, but startup rejects any non-loopback IP. The HTTP routes have no application-level authentication: use Tailscale Serve for private HTTPS access, govern access through the tailnet, and keep Funnel disabled. Do not expose the loopback HTTP listener publicly.
 
-`HOPE_API_ALGORITHM` is optional. When unset, all three algorithms are loaded and available as before. Set it to `noise`, `glaze`, or `nightshade` to verify all three pinned files but load only the selected ONNX session and reject requests for the other algorithms. Invalid values prevent startup. The macOS LaunchAgent template selects Nightshade and binds the backend to loopback; see [macOS service files](macos/README.md).
+`HOPE_API_ALGORITHM` is optional. When unset, all three algorithms are loaded and available as before. Set it to `noise`, `glaze`, or `nightshade` to verify all three pinned files but load only the selected ONNX session and reject requests for the other algorithms. Invalid values prevent startup. The macOS LaunchAgent template selects Glaze and binds the backend to loopback; see [macOS service files](macos/README.md).
 
 All three pinned files are size and SHA-256 checked before listening. By default all three sessions are loaded and reused across requests; selected mode loads only its configured session after validating the other files. Missing, corrupt, wrong, or Git LFS pointer weights prevent startup. No runtime auto-download or procedural fallback is used by HTTP. For an existing ONNX Runtime installation, the supported `ORT_LIB_LOCATION` build environment variable can be supplied.
 

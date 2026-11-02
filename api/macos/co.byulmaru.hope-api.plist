@@ -13,7 +13,7 @@
     <key>HOPE_API_ADDR</key>
     <string>127.0.0.1:8787</string>
     <key>HOPE_API_ALGORITHM</key>
-    <string>nightshade</string>
+    <string>glaze</string>
     <key>HOPE_MODEL_DIR</key>
     <string>/Users/YOUR_USER/Projects/byulmaru/hope-re/api/models</string>
   </dict>
