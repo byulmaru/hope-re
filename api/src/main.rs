@@ -86,9 +86,7 @@ impl ProgressSnapshot {
             let remaining = self
                 .total_iterations
                 .saturating_sub(self.completed_iterations);
-            let estimated_ms = elapsed
-                .as_millis()
-                .saturating_mul(u128::from(remaining))
+            let estimated_ms = elapsed.as_millis().saturating_mul(u128::from(remaining))
                 / u128::from(self.completed_iterations);
             Some(u64::try_from(estimated_ms).unwrap_or(u64::MAX))
         } else {
@@ -104,14 +102,8 @@ struct ProgressRegistration {
 
 impl ProgressRegistration {
     fn new(state: Arc<AppState>, request_id: String) -> Result<Self, &'static str> {
-        *state
-            .progress
-            .lock()
-            .map_err(|_| "Progress unavailable")? = None;
-        Ok(Self {
-            state,
-            request_id,
-        })
+        *state.progress.lock().map_err(|_| "Progress unavailable")? = None;
+        Ok(Self { state, request_id })
     }
 
     fn publish(&self, progress: ProtectionProgress, started_at: Instant) {
@@ -135,7 +127,6 @@ impl ProgressRegistration {
             }
         }
     }
-
 }
 
 impl Drop for ProgressRegistration {
@@ -192,9 +183,7 @@ fn parse_request_id(headers: &HeaderMap, required: bool) -> Result<Option<String
     if values.next().is_some() {
         return Err("X-Hope-Request-Id must appear once");
     }
-    let value = value
-        .to_str()
-        .map_err(|_| "X-Hope-Request-Id is invalid")?;
+    let value = value.to_str().map_err(|_| "X-Hope-Request-Id is invalid")?;
     if !(1..=128).contains(&value.len())
         || !value
             .bytes()
@@ -361,24 +350,23 @@ async fn protect(State(state): State<Arc<AppState>>, request: Request) -> Respon
             )
         })?;
         let protection_started = Instant::now();
-        let (image, calls) = models
-            .protect_with_state_and_progress(
+        let (image, calls) = if let Some(registration) = &progress_registration {
+            models.protect_with_state_and_progress(
                 &image,
                 &options,
                 &protection_state,
-                &|progress| {
-                    if let Some(registration) = &progress_registration {
-                        registration.publish(progress, protection_started);
-                    }
-                },
+                &|progress| registration.publish(progress, protection_started),
             )
-            .map_err(|message| {
-                eprintln!("Protection failed: {message}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Protection failed; no image returned".to_string(),
-                )
-            })?;
+        } else {
+            models.protect_with_state(&image, &options, &protection_state)
+        }
+        .map_err(|message| {
+            eprintln!("Protection failed: {message}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Protection failed; no image returned".to_string(),
+            )
+        })?;
         if let Some(registration) = &progress_registration {
             registration.mark_encoding();
         }
@@ -634,8 +622,7 @@ mod tests {
     async fn progress_route_reports_iteration_counts_and_clears_the_active_snapshot() {
         let state = state();
         let app = router(state.clone());
-        let registration =
-            ProgressRegistration::new(state, "progress-test-1".to_string()).unwrap();
+        let registration = ProgressRegistration::new(state, "progress-test-1".to_string()).unwrap();
 
         let (status, body) = get_progress(&app, "progress-test-1").await;
         assert_eq!(status, StatusCode::OK);
@@ -651,12 +638,12 @@ mod tests {
         };
         registration.publish(upstream_progress.clone(), Instant::now());
         let (_, body) = get_progress(&app, "progress-test-1").await;
-        assert_eq!(body["progress"]["estimatedRemainingMs"], serde_json::Value::Null);
-
-        registration.publish(
-            upstream_progress,
-            Instant::now() - Duration::from_secs(6),
+        assert_eq!(
+            body["progress"]["estimatedRemainingMs"],
+            serde_json::Value::Null
         );
+
+        registration.publish(upstream_progress, Instant::now() - Duration::from_secs(6));
         let (_, body) = get_progress(&app, "progress-test-1").await;
         let snapshot = &body["progress"];
         assert_eq!(snapshot["requestId"], "progress-test-1");
@@ -671,7 +658,10 @@ mod tests {
         registration.mark_encoding();
         let (_, body) = get_progress(&app, "progress-test-1").await;
         assert_eq!(body["progress"]["stage"], "encoding");
-        assert_eq!(body["progress"]["estimatedRemainingMs"], serde_json::Value::Null);
+        assert_eq!(
+            body["progress"]["estimatedRemainingMs"],
+            serde_json::Value::Null
+        );
 
         drop(registration);
         let (_, body) = get_progress(&app, "progress-test-1").await;
@@ -939,12 +929,12 @@ mod tests {
         let protection = tokio::spawn(async move {
             protection_app
                 .oneshot(
-                HttpRequest::builder()
-                    .method("POST")
-                    .uri("/protect?algorithm=nightshade&iterations=2&max_edge=1024")
-                    .header("x-hope-request-id", request_id)
-                    .body(Body::from(input))
-                    .unwrap(),
+                    HttpRequest::builder()
+                        .method("POST")
+                        .uri("/protect?algorithm=nightshade&iterations=2&max_edge=1024")
+                        .header("x-hope-request-id", request_id)
+                        .body(Body::from(input))
+                        .unwrap(),
                 )
                 .await
         });
@@ -955,8 +945,10 @@ mod tests {
             if let Some(snapshot) = body["progress"].as_object() {
                 assert_eq!(snapshot["requestId"], request_id);
                 assert!(snapshot["stage"] == "processing" || snapshot["stage"] == "encoding");
-                assert!(snapshot["completedIterations"].as_u64().unwrap()
-                    <= snapshot["totalIterations"].as_u64().unwrap());
+                assert!(
+                    snapshot["completedIterations"].as_u64().unwrap()
+                        <= snapshot["totalIterations"].as_u64().unwrap()
+                );
                 progress_seen = true;
             }
             tokio::time::sleep(Duration::from_millis(1)).await;
@@ -1055,11 +1047,10 @@ mod tests {
                 })
                 .await
         });
-        let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(
-            224,
-            224,
-            |column, row| image::Rgba([column as u8, row as u8, ((column + row) % 256) as u8, 200]),
-        ));
+        let image =
+            image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(224, 224, |column, row| {
+                image::Rgba([column as u8, row as u8, ((column + row) % 256) as u8, 200])
+            }));
         let input = image_io::encode(&image, 90.0).unwrap();
         let request_id = "tcp-disconnect-progress";
         let mut client = TcpStream::connect(address).unwrap();
@@ -1111,9 +1102,8 @@ mod tests {
                 let (status, body) = get_progress(&app, request_id).await;
                 assert_eq!(status, StatusCode::OK);
                 if let Some(snapshot) = body["progress"].as_object() {
-                    max_completed = max_completed.max(
-                        snapshot["completedIterations"].as_u64().unwrap(),
-                    );
+                    max_completed =
+                        max_completed.max(snapshot["completedIterations"].as_u64().unwrap());
                 } else if state.slot.available_permits() == 1 {
                     break;
                 }
