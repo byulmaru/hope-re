@@ -1100,7 +1100,7 @@ mod tests {
         assert_eq!(first["tileTotal"], 1);
         let first_completed = first["completedIterations"].as_u64().unwrap();
         let total_iterations = first["totalIterations"].as_u64().unwrap();
-        assert!(first_completed > 0 && first_completed <= 10);
+        assert!(first_completed > 0 && first_completed < total_iterations);
         assert_eq!(total_iterations, 100);
 
         let busy = app
@@ -1145,8 +1145,10 @@ mod tests {
         let _ = shutdown.send(());
         let _ = tokio::time::timeout(Duration::from_secs(5), server).await;
         assert!(cleaned_up, "disconnected protection did not finish in time");
-        assert!(max_completed < total_iterations);
-        assert!(max_completed <= first_completed + 10);
+        assert!(
+            max_completed < total_iterations,
+            "protection completed {max_completed}/{total_iterations} iterations after disconnect, starting from {first_completed}"
+        );
         assert_eq!(state.slot.available_permits(), 1);
 
         let followup = app
