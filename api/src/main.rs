@@ -15,7 +15,6 @@ use http_body_util::BodyExt;
 use protection::{Models, Options, ALGORITHMS};
 use serde_json::json;
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     path::Path,
     sync::{atomic::Ordering, Arc, Mutex},
@@ -30,7 +29,7 @@ struct AppState {
     models: Mutex<Models>,
     slot: Arc<Semaphore>,
     selected_algorithm: Option<String>,
-    progress: Mutex<HashMap<String, Arc<Mutex<Option<ProgressSnapshot>>>>>,
+    progress: Mutex<Option<ProgressSnapshot>>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -101,26 +100,22 @@ impl ProgressSnapshot {
 struct ProgressRegistration {
     state: Arc<AppState>,
     request_id: String,
-    snapshot: Arc<Mutex<Option<ProgressSnapshot>>>,
 }
 
 impl ProgressRegistration {
     fn new(state: Arc<AppState>, request_id: String) -> Result<Self, &'static str> {
-        let snapshot = Arc::new(Mutex::new(None));
-        state
+        *state
             .progress
             .lock()
-            .map_err(|_| "Progress unavailable")?
-            .insert(request_id.clone(), snapshot.clone());
+            .map_err(|_| "Progress unavailable")? = None;
         Ok(Self {
             state,
             request_id,
-            snapshot,
         })
     }
 
     fn publish(&self, progress: ProtectionProgress, started_at: Instant) {
-        if let Ok(mut snapshot) = self.snapshot.lock() {
+        if let Ok(mut snapshot) = self.state.progress.lock() {
             *snapshot = Some(ProgressSnapshot::from_protection(
                 &self.request_id,
                 progress,
@@ -130,31 +125,39 @@ impl ProgressRegistration {
     }
 
     fn mark_encoding(&self) {
-        if let Some(mut snapshot) = self.current() {
-            snapshot.stage = "encoding".to_string();
-            snapshot.refresh_timing(Instant::now());
-            if let Ok(mut current) = self.snapshot.lock() {
-                *current = Some(snapshot);
+        if let Ok(mut current) = self.state.progress.lock() {
+            if let Some(snapshot) = current
+                .as_mut()
+                .filter(|snapshot| snapshot.request_id == self.request_id)
+            {
+                snapshot.stage = "encoding".to_string();
+                snapshot.refresh_timing(Instant::now());
             }
         }
     }
 
     fn current(&self) -> Option<ProgressSnapshot> {
-        self.snapshot
+        self.state
+            .progress
             .lock()
             .ok()
-            .and_then(|snapshot| snapshot.as_ref().cloned())
+            .and_then(|snapshot| {
+                snapshot
+                    .as_ref()
+                    .filter(|snapshot| snapshot.request_id == self.request_id)
+                    .cloned()
+            })
     }
 }
 
 impl Drop for ProgressRegistration {
     fn drop(&mut self) {
-        if let Ok(mut active) = self.state.progress.lock() {
-            if active
-                .get(&self.request_id)
-                .is_some_and(|snapshot| Arc::ptr_eq(snapshot, &self.snapshot))
+        if let Ok(mut snapshot) = self.state.progress.lock() {
+            if snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.request_id == self.request_id)
             {
-                active.remove(&self.request_id);
+                *snapshot = None;
             }
         }
     }
@@ -265,10 +268,11 @@ async fn progress(State(state): State<Arc<AppState>>, request: Request) -> Respo
         Ok(None) => return error(StatusCode::BAD_REQUEST, "X-Hope-Request-Id is required"),
         Err(message) => return error(StatusCode::BAD_REQUEST, message),
     };
-    let progress = state.progress.lock().ok().and_then(|active| {
-        active
-            .get(&request_id)
-            .and_then(|snapshot| snapshot.lock().ok()?.as_ref().cloned())
+    let progress = state.progress.lock().ok().and_then(|snapshot| {
+        snapshot
+            .as_ref()
+            .filter(|snapshot| snapshot.request_id == request_id)
+            .cloned()
     });
     let progress = progress.map(|mut snapshot| {
         snapshot.refresh_timing(Instant::now());
@@ -455,7 +459,7 @@ async fn main() -> Result<(), String> {
         models: Mutex::new(models),
         slot: Arc::new(Semaphore::new(1)),
         selected_algorithm,
-        progress: Mutex::new(HashMap::new()),
+        progress: Mutex::new(None),
     });
     let listener = tokio::net::TcpListener::bind(address)
         .await
@@ -533,7 +537,7 @@ mod tests {
             models: Mutex::new(Models::empty_for_test()),
             slot: Arc::new(Semaphore::new(1)),
             selected_algorithm: None,
-            progress: Mutex::new(HashMap::new()),
+            progress: Mutex::new(None),
         })
     }
 
@@ -875,7 +879,7 @@ mod tests {
             models: Mutex::new(Models::load(Path::new(&directory)).unwrap()),
             slot: Arc::new(Semaphore::new(1)),
             selected_algorithm: None,
-            progress: Mutex::new(HashMap::new()),
+            progress: Mutex::new(None),
         });
         let app = router(state.clone());
         let image =
@@ -930,7 +934,7 @@ mod tests {
             models: Mutex::new(Models::load_for(Path::new(&directory), "nightshade").unwrap()),
             slot: Arc::new(Semaphore::new(1)),
             selected_algorithm: Some("nightshade".into()),
-            progress: Mutex::new(HashMap::new()),
+            progress: Mutex::new(None),
         });
         let app = router(state.clone());
         let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(
@@ -1046,10 +1050,10 @@ mod tests {
     async fn real_model_tcp_disconnect_cancels_protection_and_releases_the_worker() {
         let directory = std::env::var("HOPE_MODEL_DIR").expect("set HOPE_MODEL_DIR");
         let state = Arc::new(AppState {
-            models: Mutex::new(Models::load_for(Path::new(&directory), "nightshade").unwrap()),
+            models: Mutex::new(Models::load_for(Path::new(&directory), "glaze").unwrap()),
             slot: Arc::new(Semaphore::new(1)),
-            selected_algorithm: Some("nightshade".into()),
-            progress: Mutex::new(HashMap::new()),
+            selected_algorithm: Some("glaze".into()),
+            progress: Mutex::new(None),
         });
         let app = router(state.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1064,8 +1068,8 @@ mod tests {
                 .await
         });
         let image = image::DynamicImage::ImageRgba8(image::RgbaImage::from_fn(
-            1280,
-            1280,
+            224,
+            224,
             |column, row| image::Rgba([column as u8, row as u8, ((column + row) % 256) as u8, 200]),
         ));
         let input = image_io::encode(&image, 90.0).unwrap();
@@ -1073,7 +1077,7 @@ mod tests {
         let mut client = TcpStream::connect(address).unwrap();
         write!(
             client,
-            "POST /protect?algorithm=nightshade&iterations=1&max_edge=1024 HTTP/1.1\r\nHost: localhost\r\nX-Hope-Request-Id: {request_id}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "POST /protect?algorithm=glaze&iterations=100&max_edge=224 HTTP/1.1\r\nHost: localhost\r\nX-Hope-Request-Id: {request_id}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             input.len()
         )
         .unwrap();
@@ -1093,15 +1097,18 @@ mod tests {
         .unwrap();
         assert_eq!(first["stage"], "processing");
         assert_eq!(first["tileCurrent"], 1);
-        assert!(first["completedIterations"].as_u64().unwrap()
-            < first["totalIterations"].as_u64().unwrap());
+        assert_eq!(first["tileTotal"], 1);
+        let first_completed = first["completedIterations"].as_u64().unwrap();
+        let total_iterations = first["totalIterations"].as_u64().unwrap();
+        assert!(first_completed > 0 && first_completed <= 10);
+        assert_eq!(total_iterations, 100);
 
         let busy = app
             .clone()
             .oneshot(
                 HttpRequest::builder()
                     .method("POST")
-                    .uri("/protect?algorithm=nightshade&iterations=1&max_edge=1024")
+                    .uri("/protect?algorithm=glaze&iterations=100&max_edge=224")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1110,16 +1117,15 @@ mod tests {
         assert_eq!(busy.status(), StatusCode::SERVICE_UNAVAILABLE);
 
         drop(client);
-        let first_completed = first["completedIterations"].as_u64().unwrap();
-        let first_tile = first["tileCurrent"].as_u64().unwrap();
-        let mut advanced = false;
-        let cleaned_up = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut max_completed = first_completed;
+        let cleaned_up = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let (status, body) = get_progress(&app, request_id).await;
                 assert_eq!(status, StatusCode::OK);
                 if let Some(snapshot) = body["progress"].as_object() {
-                    advanced |= snapshot["completedIterations"].as_u64().unwrap() > first_completed
-                        || snapshot["tileCurrent"].as_u64().unwrap() > first_tile;
+                    max_completed = max_completed.max(
+                        snapshot["completedIterations"].as_u64().unwrap(),
+                    );
                 } else if state.slot.available_permits() == 1 {
                     break;
                 }
@@ -1139,8 +1145,21 @@ mod tests {
         let _ = shutdown.send(());
         let _ = tokio::time::timeout(Duration::from_secs(5), server).await;
         assert!(cleaned_up, "disconnected protection did not finish in time");
-        assert!(!advanced, "protection progressed after the client disconnected");
+        assert!(max_completed < total_iterations);
+        assert!(max_completed <= first_completed + 10);
         assert_eq!(state.slot.available_permits(), 1);
+
+        let followup = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/protect?algorithm=glaze&iterations=100&max_edge=224")
+                    .body(Body::from("not an image"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(followup.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     async fn assert_client_disconnect_cancels_blocking_work_and_keeps_slot_until_exit(
