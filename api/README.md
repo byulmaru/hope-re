@@ -61,6 +61,18 @@ curl --fail-with-body \
 
 Success is `200 image/webp`, with `Cache-Control: no-store` and `X-Hope-Model-Calls`, `X-Hope-Width`, `X-Hope-Height`, `X-Hope-Total-Ms` response headers. Failures return non-2xx; application errors use `{"error":"..."}` JSON, never a substitute image. Do not store the response as an image unless the status and content type indicate success.
 
+### Progress
+
+`POST /protect` may include `X-Hope-Request-Id`. To read the active request, send the same header to `GET /progress`. The ID must contain 1..128 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, `:`, or `-`; missing, invalid, or repeated headers return `400` on `GET /progress`, and invalid or repeated headers return `400` on `POST /protect`.
+
+`GET /progress` returns `200` with `Cache-Control: no-store` and `{"progress":null}` for an unknown ID, before the first protection callback, or after the request finishes. An active snapshot contains `requestId`, `stage`, `tileCurrent`, `tileTotal`, `iterationCurrent`, `iterationTotal`, `completedIterations`, `totalIterations`, `elapsedMs`, and `estimatedRemainingMs`. `stage` is `processing` or `encoding`; `completedIterations` is `(tileCurrent - 1) * iterationTotal + iterationCurrent`, and `totalIterations` is `tileTotal * iterationTotal`. Elapsed time starts after image decoding and model-lock acquisition. The remaining-time estimate is `null` during the first five seconds and during encoding. Snapshots exist only in process memory while the request is active; no progress history is retained.
+
+```sh
+curl --fail-with-body \
+  -H 'X-Hope-Request-Id: upload-123' \
+  'https://hope-api.example.ts.net/progress'
+```
+
 The pipeline is **decode/orient -> resize -> original model protection -> final WebP encode**. An already compressed WebP can be submitted, but must be decoded and re-encoded. Prefer original uploads or lossless resized intermediates to avoid two lossy encodes. Alpha is preserved, metadata is stripped, and ICC conversion is the caller's responsibility. Animated WebP/APNG are rejected rather than dropping frames.
 
 Upload limit: 32 MiB, 30-second body-read timeout, maximum input dimensions 8192 per side / 40 million pixels, and maximum processed edge 4096. Exactly one upload/processing request holds the worker slot; concurrent requests get `503` without an internal queue. The caller owns stricter upload limits, its bounded queue, retries, storage, and publication state. Heavy work runs off the HTTP executor, so health checks remain responsive.

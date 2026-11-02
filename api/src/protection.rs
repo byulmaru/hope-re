@@ -4,7 +4,7 @@ use ort::session::{builder::GraphOptimizationLevel, Session};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{cell::Cell, collections::HashMap, path::Path, rc::Rc};
-use types::{AlgorithmParams, ProtectionState};
+use types::{AlgorithmParams, ProtectionProgress, ProtectionState};
 
 pub const ALGORITHMS: [&str; 3] = ["noise", "glaze", "nightshade"];
 
@@ -171,6 +171,16 @@ impl Models {
         options: &Options,
         state: &ProtectionState,
     ) -> Result<(DynamicImage, u64), String> {
+        self.protect_with_state_and_progress(image, options, state, &|_| {})
+    }
+
+    pub fn protect_with_state_and_progress(
+        &mut self,
+        image: &DynamicImage,
+        options: &Options,
+        state: &ProtectionState,
+        emit: &dyn Fn(ProtectionProgress),
+    ) -> Result<(DynamicImage, u64), String> {
         let params = options.validate()?;
         let session = self
             .0
@@ -204,7 +214,7 @@ impl Models {
                     }
                 })
             },
-            &|_| {},
+            emit,
             state,
         )?;
         Ok((image, calls.get()))
