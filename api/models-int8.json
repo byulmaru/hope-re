@@ -1,0 +1,8 @@
+[
+  {
+    "algorithm": "glaze",
+    "filename": "glaze_algorithm.int8.onnx",
+    "bytes": 99322883,
+    "sha256": "c484ea113d937c3c58d93fd9c098ac85ac163eb5b11e5a8f65028e8ef2b94619"
+  }
+]

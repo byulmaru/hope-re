@@ -31,7 +31,32 @@ The server defaults to `127.0.0.1:8787`. `HOPE_API_ADDR` may select another port
 
 `HOPE_API_ALGORITHM` is optional. When unset, all three algorithms are loaded and available as before. Set it to `noise`, `glaze`, or `nightshade` to verify all three pinned files but load only the selected ONNX session and reject requests for the other algorithms. Invalid values prevent startup. The macOS LaunchAgent template selects Glaze and binds the backend to loopback; see [macOS service files](macos/README.md).
 
-All three pinned files are size and SHA-256 checked before listening. By default all three sessions are loaded and reused across requests; selected mode loads only its configured session after validating the other files. Missing, corrupt, wrong, or Git LFS pointer weights prevent startup. No runtime auto-download or procedural fallback is used by HTTP. For an existing ONNX Runtime installation, the supported `ORT_LIB_LOCATION` build environment variable can be supplied.
+The three official models are pinned by size and SHA-256 in `models.json`. Default and FP32-selected modes verify all three files; selected mode loads only its configured session. Missing, corrupt, wrong, or Git LFS pointer weights prevent startup. No runtime auto-download or procedural fallback is used by HTTP. For an existing ONNX Runtime installation, the supported `ORT_LIB_LOCATION` build environment variable can be supplied.
+
+## Glaze model variant
+
+Glaze uses the FP32 model by default. `HOPE_API_GLAZE_VARIANT` accepts `fp32` or `int8`; `int8` requires `HOPE_API_ALGORITHM=glaze`. The setting is read at startup and does not add an HTTP option or change the response contract. INT8 mode validates the separate `models-int8.json` pin and loads only that Glaze session; a missing or mismatched file fails startup without FP32 fallback. Both Glaze files stay in `HOPE_MODEL_DIR`. Startup logs the selected INT8 filename and verified SHA-256. The regular downloader does not fetch the INT8 sidecar.
+
+The weight-only candidate is derived from the official v2.5.1 FP32 Glaze model pinned in `models.json`. The conversion helper rewrites 48 eligible `Gemm` nodes into `MatMul` plus `Add`; the ONNX Runtime 1.28.0 quantizer then stores the weights in 8-bit symmetric `MatMulNBits` blocks of 128 with `accuracy_level=1`. Activations and accumulation remain float32. The beta=0 `Gemm` and `Conv` remain FP32; graph inputs and outputs stay unchanged. The sidecar filename and SHA-256 pin are in `models-int8.json`.
+
+Prepare the official source and generate the sidecar locally:
+
+```sh
+python3 api/download_models.py --model-dir api/models --algorithm glaze
+python3.12 -m venv /private/tmp/hope-api-quantization
+/private/tmp/hope-api-quantization/bin/python -m pip install -r api/quantization-requirements.txt
+/private/tmp/hope-api-quantization/bin/python api/quantize_glaze_int8.py --model-dir api/models
+```
+
+The helper verifies the source and output against their manifests, checks the pinned ONNX Runtime, ONNX, and ONNX-IR versions, refuses to overwrite an existing sidecar, and verifies the resulting `MatMulNBits` settings. No release URL is configured for the sidecar.
+
+Select the candidate on CPU by starting the API with:
+
+```sh
+HOPE_API_ALGORITHM=glaze HOPE_API_GLAZE_VARIANT=int8 HOPE_MODEL_DIR="$PWD/api/models" api/target/release/hope-api
+```
+
+Passing controlled SPSA sign probes does not establish Glaze protection efficacy or equivalence to FP32.
 
 ## HTTP contract
 

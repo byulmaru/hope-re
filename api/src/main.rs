@@ -220,6 +220,22 @@ fn selected_algorithm(value: Result<String, std::env::VarError>) -> Result<Optio
     }
 }
 
+fn use_int8_glaze(
+    value: Result<String, std::env::VarError>,
+    selected_algorithm: Option<&str>,
+) -> Result<bool, String> {
+    match value {
+        Ok(variant) if variant == "fp32" => Ok(false),
+        Ok(variant) if variant == "int8" && selected_algorithm == Some("glaze") => Ok(true),
+        Ok(variant) if variant == "int8" => {
+            Err("HOPE_API_GLAZE_VARIANT=int8 requires HOPE_API_ALGORITHM=glaze".into())
+        }
+        Ok(_) => Err("HOPE_API_GLAZE_VARIANT must be fp32 or int8".into()),
+        Err(std::env::VarError::NotPresent) => Ok(false),
+        Err(error) => Err(format!("Invalid HOPE_API_GLAZE_VARIANT: {error}")),
+    }
+}
+
 fn listen_address(value: Result<String, std::env::VarError>) -> Result<SocketAddr, String> {
     let address: SocketAddr = value
         .unwrap_or_else(|_| "127.0.0.1:8787".into())
@@ -423,13 +439,21 @@ fn router(state: Arc<AppState>) -> Router {
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let selected_algorithm = selected_algorithm(std::env::var("HOPE_API_ALGORITHM"))?;
+    let int8_glaze = use_int8_glaze(
+        std::env::var("HOPE_API_GLAZE_VARIANT"),
+        selected_algorithm.as_deref(),
+    )?;
     let address = listen_address(std::env::var("HOPE_API_ADDR"))?;
-    let directory = std::env::var("HOPE_MODEL_DIR")
-        .map_err(|_| "Set HOPE_MODEL_DIR to the directory containing all three model weights")?;
+    let directory =
+        std::env::var("HOPE_MODEL_DIR").map_err(|_| "Set HOPE_MODEL_DIR to the model directory")?;
     let model_dir = Path::new(&directory);
-    let models = match selected_algorithm.as_deref() {
-        Some(algorithm) => Models::load_for(model_dir, algorithm)?,
-        None => Models::load(model_dir)?,
+    let models = if int8_glaze {
+        Models::load_glaze_int8(model_dir)?
+    } else {
+        match selected_algorithm.as_deref() {
+            Some(algorithm) => Models::load_for(model_dir, algorithm)?,
+            None => Models::load(model_dir)?,
+        }
     };
     let state = Arc::new(AppState {
         models: Mutex::new(models),
@@ -701,6 +725,17 @@ mod tests {
             Some("nightshade".into())
         );
         assert!(selected_algorithm(Ok("unknown".into())).is_err());
+    }
+
+    #[test]
+    fn glaze_variant_defaults_to_fp32_and_requires_explicit_glaze_selection_for_int8() {
+        assert!(!use_int8_glaze(Err(std::env::VarError::NotPresent), None).unwrap());
+        assert!(!use_int8_glaze(Ok("fp32".into()), None).unwrap());
+        assert!(!use_int8_glaze(Ok("fp32".into()), Some("noise")).unwrap());
+        assert!(use_int8_glaze(Ok("int8".into()), Some("glaze")).unwrap());
+        assert!(use_int8_glaze(Ok("int8".into()), None).is_err());
+        assert!(use_int8_glaze(Ok("int8".into()), Some("noise")).is_err());
+        assert!(use_int8_glaze(Ok("unknown".into()), Some("glaze")).is_err());
     }
 
     #[test]
