@@ -97,7 +97,7 @@ impl Options {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct ModelSpec {
     algorithm: String,
     filename: String,
@@ -121,9 +121,19 @@ impl Models {
         Self::load_selected(directory, Some(algorithm))
     }
 
+    pub fn load_glaze_int8(directory: &Path) -> Result<Self, String> {
+        let spec = parse_glaze_int8_spec(include_str!("../models-int8.json"))?;
+        let bytes = verified_model_bytes(directory, &spec)?;
+        let session = load_model_session(&bytes)?;
+        eprintln!(
+            "Hope API selected Glaze variant=int8 model={} sha256={}",
+            spec.filename, spec.sha256
+        );
+        Ok(Self(HashMap::from([("glaze".to_string(), session)])))
+    }
+
     fn load_selected(directory: &Path, selected_algorithm: Option<&str>) -> Result<Self, String> {
-        let specs: Vec<ModelSpec> = serde_json::from_str(include_str!("../models.json"))
-            .map_err(|error| error.to_string())?;
+        let specs = parse_model_specs(include_str!("../models.json"))?;
         if let Some(algorithm) = selected_algorithm {
             if !specs
                 .iter()
@@ -134,32 +144,11 @@ impl Models {
         }
         let mut sessions = HashMap::new();
         for spec in specs {
-            let path = directory.join(&spec.filename);
-            if std::fs::metadata(&path)
-                .map_err(|error| format!("{}: {error}", path.display()))?
-                .len()
-                != spec.bytes
-            {
-                return Err(format!(
-                    "{}: model size mismatch; LFS pointers are not weights",
-                    path.display()
-                ));
-            }
-            let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
-            if format!("{:x}", Sha256::digest(&bytes)) != spec.sha256 {
-                return Err(format!("{}: model SHA-256 mismatch", path.display()));
-            }
+            let bytes = verified_model_bytes(directory, &spec)?;
             if selected_algorithm.is_some_and(|algorithm| algorithm != spec.algorithm.as_str()) {
                 continue;
             }
-            let session = Session::builder()
-                .map_err(|error| error.to_string())?
-                .with_optimization_level(GraphOptimizationLevel::Level3)
-                .map_err(|error| error.to_string())?
-                .with_execution_providers([ort::ep::CPU::default().build().error_on_failure()])
-                .map_err(|error| error.to_string())?
-                .commit_from_memory(&bytes)
-                .map_err(|error| error.to_string())?;
+            let session = load_model_session(&bytes)?;
             sessions.insert(spec.algorithm, session);
         }
         Ok(Self(sessions))
@@ -221,6 +210,52 @@ impl Models {
     }
 }
 
+fn parse_model_specs(manifest: &str) -> Result<Vec<ModelSpec>, String> {
+    serde_json::from_str(manifest).map_err(|error| error.to_string())
+}
+
+fn parse_glaze_int8_spec(manifest: &str) -> Result<ModelSpec, String> {
+    let mut specs = parse_model_specs(manifest)?;
+    if specs.len() != 1 {
+        return Err("INT8 model manifest must contain exactly one Glaze model".into());
+    }
+    let spec = specs.remove(0);
+    if spec.algorithm != "glaze" || spec.filename != "glaze_algorithm.int8.onnx" {
+        return Err("INT8 model manifest contains an invalid Glaze model pin".into());
+    }
+    Ok(spec)
+}
+
+fn verified_model_bytes(directory: &Path, spec: &ModelSpec) -> Result<Vec<u8>, String> {
+    let path = directory.join(&spec.filename);
+    if std::fs::metadata(&path)
+        .map_err(|error| format!("{}: {error}", path.display()))?
+        .len()
+        != spec.bytes
+    {
+        return Err(format!(
+            "{}: model size mismatch; LFS pointers are not weights",
+            path.display()
+        ));
+    }
+    let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+    if format!("{:x}", Sha256::digest(&bytes)) != spec.sha256 {
+        return Err(format!("{}: model SHA-256 mismatch", path.display()));
+    }
+    Ok(bytes)
+}
+
+fn load_model_session(bytes: &[u8]) -> Result<Session, String> {
+    Session::builder()
+        .map_err(|error| error.to_string())?
+        .with_optimization_level(GraphOptimizationLevel::Level3)
+        .map_err(|error| error.to_string())?
+        .with_execution_providers([ort::ep::CPU::default().build().error_on_failure()])
+        .map_err(|error| error.to_string())?
+        .commit_from_memory(bytes)
+        .map_err(|error| error.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,6 +282,62 @@ mod tests {
                 .as_deref(),
             Some("Unknown model algorithm: unknown")
         );
+    }
+
+    #[test]
+    fn int8_loader_fails_closed_when_selected_model_is_unavailable() {
+        assert!(Models::load_glaze_int8(Path::new("nonexistent-model-directory")).is_err());
+    }
+
+    #[test]
+    fn glaze_int8_manifest_requires_one_pinned_glaze_model() {
+        let manifest = r#"[{"algorithm":"glaze","filename":"glaze_algorithm.int8.onnx","bytes":2048,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]"#;
+        let spec = parse_glaze_int8_spec(manifest).unwrap();
+        assert_eq!(spec.algorithm, "glaze");
+        assert_eq!(spec.filename, "glaze_algorithm.int8.onnx");
+        assert!(parse_glaze_int8_spec("[]").is_err());
+        assert!(parse_glaze_int8_spec(
+            r#"[{"algorithm":"noise","filename":"glaze_algorithm.int8.onnx","bytes":2048,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn verified_model_bytes_rejects_missing_and_mismatched_pins() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let directory = std::env::temp_dir().join(format!(
+            "hope-api-model-pin-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("model.onnx");
+        let expected = b"pinned model bytes";
+        std::fs::write(&path, expected).unwrap();
+        let spec = ModelSpec {
+            algorithm: "glaze".into(),
+            filename: "model.onnx".into(),
+            bytes: expected.len() as u64,
+            sha256: format!("{:x}", Sha256::digest(expected)),
+        };
+        assert_eq!(verified_model_bytes(&directory, &spec).unwrap(), expected);
+        let bad_size_spec = ModelSpec {
+            bytes: spec.bytes + 1,
+            ..spec.clone()
+        };
+        assert!(verified_model_bytes(&directory, &bad_size_spec).is_err());
+        let bad_spec = ModelSpec {
+            sha256: "0".repeat(64),
+            ..spec
+        };
+        assert!(verified_model_bytes(&directory, &bad_spec).is_err());
+        std::fs::remove_file(path).unwrap();
+        assert!(verified_model_bytes(&directory, &bad_spec).is_err());
+        std::fs::remove_dir(directory).unwrap();
     }
 
     #[test]
